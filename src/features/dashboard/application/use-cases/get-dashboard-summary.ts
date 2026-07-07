@@ -1,8 +1,8 @@
 "use server";
 
 import {
-    listContentsAllAccounts,
-    getContentStatistics,
+    cachedListContentsAllAccounts,
+    cachedGetContentStatistics,
 } from "@/features/social-integration/infrastructure/repliz/repliz-client";
 import { withWorkspacePermission } from "@/shared/lib/guards/with-workspace-permission";
 
@@ -115,9 +115,10 @@ export const getDashboardSummary = withWorkspacePermission(
         const accountIds = Array.from(connectedAccountIdSet);
         const accountPlatformMap = new Map(connectedAccounts.map((a) => [a.replizAccountId, a.platform]));
 
-        // Count accounts by platform from Repliz API (as a fallback indicator)
-        const replizByType = await getReplizAccountCounts();
-        const replizAccountTotal = Object.values(replizByType).reduce((sum, v) => sum + v, 0);
+        // Count accounts by platform from Repliz API (disabled — too slow for limit=200;
+        // not needed since connected accounts are always loaded first).
+        // const replizByType = await getReplizAccountCounts();
+        // const replizAccountTotal = Object.values(replizByType).reduce((sum, v) => sum + v, 0);
 
         // Build byPlatform from connected accounts
         const byPlatformMap = new Map<string, number>();
@@ -147,8 +148,8 @@ export const getDashboardSummary = withWorkspacePermission(
             };
         }
 
-        // ─── Content (filtered by team's connected account IDs) ─────────
-        const contentResult = await listContentsAllAccounts({ accountIds, type: "media" });
+        // ─── Content (cached — avoids duplicate Repliz API calls) ─────────
+        const contentResult = await cachedListContentsAllAccounts({ accountIds, type: "media" });
         const allContents = contentResult.docs;
 
         // Content by platform
@@ -167,18 +168,25 @@ export const getDashboardSummary = withWorkspacePermission(
             .sort((a, b) => b.count - a.count);
 
         // ─── Engagement Stats ────────────────────────────────────────────
-        const sampleContents = allContents.slice(0, 30);
+        // Reduced sample size from 30→10 to cut latency. Repliz stats endpoint is slow
+        // and 10 samples is statistically sufficient for engagement-rate averages.
+        const sampleContents = allContents.slice(0, 10);
 
         const statsMap = new Map<string, Record<string, unknown>>();
-        const statsPromises = sampleContents.map(async (c) => {
-            try {
-                const s = await getContentStatistics(c.id, c.accountId);
-                statsMap.set(c.id, s as Record<string, unknown>);
-            } catch {
-                statsMap.set(c.id, {});
-            }
-        });
-        await Promise.all(statsPromises);
+        // Limit parallelism to 5 concurrent calls to avoid hammering Repliz API
+        // (which has implicit rate limits and can 429 on bursts).
+        const BATCH_SIZE = 5;
+        for (let i = 0; i < sampleContents.length; i += BATCH_SIZE) {
+            const batch = sampleContents.slice(i, i + BATCH_SIZE);
+            await Promise.all(batch.map(async (c) => {
+                try {
+                    const s = await cachedGetContentStatistics(c.id, c.accountId);
+                    statsMap.set(c.id, s as Record<string, unknown>);
+                } catch {
+                    statsMap.set(c.id, {});
+                }
+            }));
+        }
 
         let totalViews = 0, totalLikes = 0, totalComments = 0, totalShares = 0;
 

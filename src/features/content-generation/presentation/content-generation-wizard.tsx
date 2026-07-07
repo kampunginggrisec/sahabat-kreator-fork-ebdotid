@@ -1,91 +1,106 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { ContentBriefForm } from "./components/content-brief-form";
 import { ContentIdeaList } from "./components/content-idea-list";
 import { CaptionEditor } from "./components/caption-editor";
-import { generateContentIdeasAction } from "../application/use-cases/generate-content-ideas";
-import { generateCaptionFromIdeaAction } from "../application/use-cases/generate-caption-from-idea";
-import { saveGeneratedContentAction } from "../application/use-cases/save-generated-content";
 import type { ContentIdea } from "../domain/entities/content-idea.entity";
+import type { PlatformType, SaveContentInput } from "./hooks/use-content-generation";
+import {
+  useGenerateContentIdeas,
+  useGenerateCaption,
+  useSaveGeneratedContent,
+} from "./hooks/use-content-generation";
 
 type Step = "brief" | "ideas" | "caption" | "done";
+
+const PLATFORMS: PlatformType[] = ["instagram", "tiktok", "youtube", "facebook", "x"];
 
 export function ContentGenerationWizard({ prefillBrief }: { prefillBrief?: string }) {
   const [step, setStep] = useState<Step>("brief");
   const [brief, setBrief] = useState("");
-  const [platform, setPlatform] = useState<"instagram" | "tiktok" | "youtube" | "facebook" | "x">("instagram");
+  const [platform, setPlatform] = useState<PlatformType>("instagram");
   const [ideas, setIdeas] = useState<ContentIdea[]>([]);
   const [selectedIdea, setSelectedIdea] = useState<ContentIdea | null>(null);
   const [caption, setCaption] = useState("");
   const [hashtags, setHashtags] = useState<string[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const generateIdeasMutation = useGenerateContentIdeas();
+  const generateCaptionMutation = useGenerateCaption();
+  const saveContentMutation = useSaveGeneratedContent();
+
+  // Track current inputs for regeneration without relying on stale closures
+  const stateRef = useRef({ brief, platform });
+  stateRef.current = { brief, platform };
+
+  function dismissError() {
+    setError(null);
+  }
 
   async function handleGenerateIdeas(briefInput: string, platformInput: string) {
     setBrief(briefInput);
-    setPlatform(platformInput as typeof platform);
-    setIsLoading(true);
-    setError(null);
+    setPlatform(platformInput as PlatformType);
+    dismissError();
     try {
-      const result = await generateContentIdeasAction(briefInput, platformInput);
-      setIdeas(result);
+      const result = await generateIdeasMutation.mutateAsync({ brief: briefInput, platform: platformInput });
+      setIdeas(result as ContentIdea[]);
       setStep("ideas");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal generate ide.");
-    } finally {
-      setIsLoading(false);
     }
   }
 
   async function handleSelectIdea(idea: ContentIdea) {
     setSelectedIdea(idea);
-    setIsLoading(true);
-    setError(null);
+    dismissError();
     try {
-      const result = await generateCaptionFromIdeaAction(idea, platform);
+      const result = await generateCaptionMutation.mutateAsync({ idea, platform });
       setCaption(result.caption);
       setHashtags(result.hashtags);
       setStep("caption");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal generate caption.");
-    } finally {
-      setIsLoading(false);
     }
   }
 
   async function handleSaveCaption(finalCaption: string, finalHashtags: string[]) {
     if (!selectedIdea) return;
-    setIsLoading(true);
+    dismissError();
     try {
-      await saveGeneratedContentAction({
+      const payload: SaveContentInput = {
         brief,
         platform,
         idea: selectedIdea,
         caption: finalCaption,
         hashtags: finalHashtags,
-      });
+      };
+      await saveContentMutation.mutateAsync(payload);
       setStep("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal menyimpan konten.");
-    } finally {
-      setIsLoading(false);
     }
   }
+
+  const isLoading = generateIdeasMutation.isPending || generateCaptionMutation.isPending || saveContentMutation.isPending;
 
   return (
     <div className="space-y-6">
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       {step === "brief" && (
-        <ContentBriefForm onGenerate={handleGenerateIdeas} isGenerating={isLoading} initialBrief={prefillBrief} />
+        <ContentBriefForm
+          onGenerate={handleGenerateIdeas}
+          isGenerating={isLoading}
+          initialBrief={prefillBrief}
+        />
       )}
 
       {step === "ideas" && (
         <ContentIdeaList
           ideas={ideas}
           onSelect={handleSelectIdea}
-          onRegenerate={() => handleGenerateIdeas(brief, platform)}
+          onRegenerate={() => handleGenerateIdeas(stateRef.current.brief, stateRef.current.platform)}
           isRegenerating={isLoading}
         />
       )}
@@ -108,6 +123,9 @@ export function ContentGenerationWizard({ prefillBrief }: { prefillBrief?: strin
               setBrief("");
               setIdeas([]);
               setSelectedIdea(null);
+              setCaption("");
+              setHashtags([]);
+              dismissError();
             }}
             className="text-sm text-muted-foreground hover:text-foreground underline"
           >

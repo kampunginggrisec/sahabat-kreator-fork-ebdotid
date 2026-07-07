@@ -9,6 +9,7 @@ import { Label } from "@/shared/presentation/components/ui/label";
 import { Button } from "@/shared/presentation/components/ui/button";
 import { FormError } from "@/shared/presentation/components/ui/form-error";
 import Link from "next/link";
+import { getFirstWorkspaceAction } from "@/features/organization/application/use-cases/get-first-workspace-server-action";
 
 export function RegisterForm() {
   const router = useRouter();
@@ -47,28 +48,30 @@ export function RegisterForm() {
       return;
     }
 
-    // DB hook di auth.ts sudah auto-create org + workspace saat user dibuat.
-    // Hook ini asynchronous di sisi server — beri sedikit waktu agar konsisten,
-    // lalu baca, lalu redirect.
-    let firstOrg: { id: string; slug: string } | undefined;
-    for (let i = 0; i < 10 && !firstOrg; i++) {
-      console.log("Polling for organizations, attempt", i);
-      const orgs = await authClient.organization.list();
-      console.log("Got orgs:", orgs);
-      firstOrg = orgs.data?.[0] as { id: string; slug: string } | undefined;
-      console.log("firstOrg:", firstOrg);
-      if (!firstOrg) await new Promise((r) => setTimeout(r, 200));
-    }
+    // DB hook di auth.ts already auto-creates org + workspace when the user is created.
+    // No more polling — getFirstWorkspaceAction is a single DB query that resolves
+    // synchronously from the user's perspective (auto-created org should be there
+    // since the create user hook ran in the same transaction-like context).
 
-    if (!firstOrg) {
-      console.log("No firstOrg found, redirecting to /register");
-      router.push("/register");
+    const workspace = await getFirstWorkspaceAction();
+    if (workspace) {
+      router.push(`/${workspace.orgSlug}/${workspace.workspaceSlug}`);
       return;
     }
 
-    // Since our default team's slug is always the same as the org's slug:
-    console.log("Redirecting to:", `/${firstOrg.slug}/${firstOrg.slug}`);
-    router.push(`/${firstOrg.slug}/${firstOrg.slug}`);
+    // Org not yet created — retry with short exponential backoff (max 1s).
+    // This handles the rare case where the auto-create hook is slightly delayed.
+    for (let i = 0; i < 5; i++) {
+      await new Promise((r) => setTimeout(r, 200));
+      const retry = await getFirstWorkspaceAction();
+      if (retry) {
+        router.push(`/${retry.orgSlug}/${retry.workspaceSlug}`);
+        return;
+      }
+    }
+
+    // Final fallback — stay on page and let the user navigate
+    router.push("/");
   }
 
   return (

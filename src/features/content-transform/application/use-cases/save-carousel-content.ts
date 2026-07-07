@@ -7,7 +7,7 @@ import { nanoid } from "nanoid";
 
 type SaveCarouselInput = {
   parentContentId: string | null;
-  platform: "instagram" | "facebook" | "threads" | "tiktok" | "linkedin";
+  platform: "instagram" | "tiktok" | "facebook" | "threads" | "linkedin" | "youtube";
   slides: { order: number; text: string; imageUrl: string }[];
 };
 

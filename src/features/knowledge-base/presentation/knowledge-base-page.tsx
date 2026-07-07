@@ -1,53 +1,46 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { KnowledgeEntryForm } from "./components/knowledge-entry-form";
 import { KnowledgeEntryList } from "./components/knowledge-entry-list";
-import { listKnowledgeEntriesAction } from "../application/use-cases/list-knowledge-entries";
-
-type Entry = {
-  id: string;
-  title: string;
-  content: string;
-  category: string;
-  tags: string[];
-  isPinned: boolean;
-};
+import { Button } from "@/shared/presentation/components/ui/button";
+import {
+  knowledgeEntriesOptions,
+  type KnowledgeEntry,
+} from "./hooks/use-knowledge-entries";
 
 export function KnowledgeBasePage() {
-  const [entries, setEntries] = useState<Entry[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const { data: entries = [], isLoading } = useQuery(knowledgeEntriesOptions());
 
-  const refresh = useCallback(async () => {
-    const result = await listKnowledgeEntriesAction();
-    setEntries(result as Entry[]);
-  }, []);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="h-8 w-64 animate-pulse rounded bg-muted/50" />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="h-32 animate-pulse rounded-lg border bg-muted/30" />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      {showForm && (
-        <KnowledgeEntryForm
-          onSaved={() => {
-            setShowForm(false);
-            refresh();
-          }}
-        />
-      )}
+      {showForm && <KnowledgeEntryForm onClose={() => setShowForm(false)} />}
 
       <div className="flex justify-end">
-        <button
+        <Button
+          size="sm"
           onClick={() => setShowForm((v) => !v)}
-          className="rounded-md bg-foreground px-3 py-1.5 text-sm font-medium text-background"
         >
           {showForm ? "Tutup" : "+ Tambah Entry"}
-        </button>
+        </Button>
       </div>
 
-      <KnowledgeEntryList entries={entries} onDeleted={refresh} />
+      <KnowledgeEntryList entries={entries as KnowledgeEntry[]} />
     </div>
   );
 }

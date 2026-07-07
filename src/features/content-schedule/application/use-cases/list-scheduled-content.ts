@@ -8,7 +8,7 @@ import { withWorkspacePermission } from "@/shared/lib/guards/with-workspace-perm
 export const listScheduledContentAction = withWorkspacePermission(
     ["owner", "admin", "member", "viewer"],
     async (ctx, fromDate: string, toDate: string) => {
-        return db.query.contentSchedule.findMany({
+        const rows = await db.query.contentSchedule.findMany({
             where: and(
                 eq(contentSchedule.workspaceId, ctx.teamId),
                 gte(contentSchedule.scheduleAt, new Date(fromDate)),
@@ -20,5 +20,27 @@ export const listScheduledContentAction = withWorkspacePermission(
             },
             orderBy: (schedule, { asc }) => [asc(schedule.scheduleAt)],
         });
+        return rows.map((row) => ({
+            id: row.id,
+            createdAt: row.createdAt,
+            updatedAt: row.updatedAt,
+            workspaceId: row.workspaceId,
+            status: row.status,
+            createdBy: row.createdBy,
+            generatedContentId: row.generatedContentId,
+            connectionId: row.connectionId,
+            replizScheduleId: row.replizScheduleId,
+            scheduleAt: row.scheduleAt.toISOString(),
+            errorMessage: row.errorMessage,
+            generatedContent: row.generatedContent
+                ? { caption: row.generatedContent.caption, platform: row.generatedContent.platform }
+                : null,
+            connection: row.connection
+                ? {
+                      externalName: row.connection.externalName,
+                      platform: row.connection.platform,
+                  }
+                : null,
+        }));
     }
 );

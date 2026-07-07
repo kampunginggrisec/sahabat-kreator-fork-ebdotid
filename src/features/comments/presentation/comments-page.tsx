@@ -1,66 +1,76 @@
 "use client";
 
-import { useState, useEffect, useCallback, useTransition } from "react";
-import { listCommentsAction } from "../application/use-cases/list-comments";
+import { useState, useMemo } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { listCommentsAction, type CommentListInput } from "../application/use-cases/list-comments";
 import { replyCommentAction, updateCommentStatusAction } from "../application/use-cases/manage-comment";
-import { getConnectedAccountsAction } from "@/features/social-integration/application/use-cases/get-connected-accounts";
+import { useConnectedAccounts } from "@/features/social-integration/presentation/hooks/use-connected-accounts";
 import type { ReplizComment } from "@/features/social-integration/infrastructure/repliz/repliz-client";
 import { Button } from "@/shared/presentation/components/ui/button";
 import { Input } from "@/shared/presentation/components/ui/input";
 import { EmptyState } from "@/shared/presentation/components/ui/empty-state";
 import { Spinner } from "@/shared/presentation/components/ui/spinner";
+import { comments } from "@/features/shared/lib/query-keys";
 
 type StatusFilter = "all" | "pending" | "resolved" | "ignored";
 
 export function CommentsPage() {
-    const [connectedAccountIds, setConnectedAccountIds] = useState<string[]>([]);
+    const accountsQuery = useConnectedAccounts();
+    const connectedAccountIds = useMemo(
+        () => accountsQuery.data?.accountIds ?? [],
+        [accountsQuery.data]
+    );
+
     const [page, setPage] = useState(1);
     const [status, setStatus] = useState<StatusFilter>("pending");
     const [search, setSearch] = useState("");
-    const [docs, setDocs] = useState<ReplizComment[]>([]);
-    const [totalPages, setTotalPages] = useState(1);
-    const [loading, setLoading] = useState(true);
     const [replyingTo, setReplyingTo] = useState<string | null>(null);
     const [replyText, setReplyText] = useState("");
-    const [isPending, startTransition] = useTransition();
 
-    useEffect(() => {
-        getConnectedAccountsAction()
-            .then((res) => setConnectedAccountIds(res.accountIds))
-            .catch(() => setConnectedAccountIds([]));
-    }, []);
-
-    const load = useCallback(async () => {
-        setLoading(true);
-        const result = await listCommentsAction({
+    const filter: Omit<CommentListInput, "accountIds"> = useMemo(
+        () => ({
             page,
             limit: 20,
             status: status === "all" ? undefined : status,
-            accountIds: connectedAccountIds,
             search: search.trim() ? search.trim() : undefined,
-        });
-        setDocs(result.docs);
-        setTotalPages(result.totalPages ?? 1);
-        setLoading(false);
-    }, [page, status, search, connectedAccountIds]);
+        }),
+        [page, status, search]
+    );
 
-    useEffect(() => { load(); }, [load]);
+    const commentsQuery = useQuery({
+        queryKey: comments({ ...filter, accountIds: connectedAccountIds }),
+        queryFn: () => listCommentsAction({ ...filter, accountIds: connectedAccountIds }),
+        staleTime: 30 * 1000,
+    });
+
+    const docs: ReplizComment[] = commentsQuery.data?.docs ?? [];
+    const totalPages = commentsQuery.data?.totalPages ?? 1;
+
+    const qc = useQueryClient();
+
+    const replyMutation = useMutation({
+        mutationFn: (args: { commentId: string; text: string }) =>
+            replyCommentAction(args),
+        onSuccess: () => {
+            setReplyText("");
+            setReplyingTo(null);
+            qc.invalidateQueries({ queryKey: ["comments"] });
+        },
+    });
+
+    const statusMutation = useMutation({
+        mutationFn: (args: { commentId: string; status: "pending" | "resolved" | "ignored" }) =>
+            updateCommentStatusAction(args),
+        onSuccess: () => qc.invalidateQueries({ queryKey: ["comments"] }),
+    });
 
     const submitReply = (commentId: string) => {
         if (!replyText.trim()) return;
-        startTransition(async () => {
-            await replyCommentAction({ commentId, text: replyText.trim() });
-            setReplyText("");
-            setReplyingTo(null);
-            await load();
-        });
+        replyMutation.mutate({ commentId, text: replyText.trim() });
     };
 
     const updateStatus = (commentId: string, next: "pending" | "resolved" | "ignored") => {
-        startTransition(async () => {
-            await updateCommentStatusAction({ commentId, status: next });
-            await load();
-        });
+        statusMutation.mutate({ commentId, status: next });
     };
 
     return (
@@ -83,10 +93,10 @@ export function CommentsPage() {
                     onChange={(e) => { setSearch(e.target.value); setPage(1); }}
                     className="max-w-xs"
                 />
-                {loading && <Spinner className="h-4 w-4" />}
+                {commentsQuery.isFetching && <Spinner className="h-4 w-4" />}
             </div>
 
-            {loading && docs.length === 0 ? (
+            {commentsQuery.isLoading && docs.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Memuat komentar...</p>
             ) : docs.length === 0 ? (
                 <EmptyState title="Belum ada komentar" description="Komentar dari semua akun terhubung akan muncul di sini." />
@@ -130,7 +140,7 @@ export function CommentsPage() {
                                             if (e.key === "Escape") { setReplyingTo(null); setReplyText(""); }
                                         }}
                                     />
-                                    <Button onClick={() => submitReply(comment._id)} disabled={isPending || !replyText.trim()}>
+                                    <Button onClick={() => submitReply(comment._id)} disabled={replyMutation.isPending || !replyText.trim()}>
                                         Kirim
                                     </Button>
                                     <Button variant="ghost" onClick={() => { setReplyingTo(null); setReplyText(""); }}>
@@ -143,12 +153,12 @@ export function CommentsPage() {
                                         Balas
                                     </Button>
                                     {comment.status !== "resolved" && (
-                                        <Button size="sm" variant="ghost" onClick={() => updateStatus(comment._id, "resolved")} disabled={isPending}>
+                                        <Button size="sm" variant="ghost" onClick={() => updateStatus(comment._id, "resolved")} disabled={statusMutation.isPending}>
                                             Tandai Selesai
                                         </Button>
                                     )}
                                     {comment.status !== "ignored" && (
-                                        <Button size="sm" variant="ghost" onClick={() => updateStatus(comment._id, "ignored")} disabled={isPending}>
+                                        <Button size="sm" variant="ghost" onClick={() => updateStatus(comment._id, "ignored")} disabled={statusMutation.isPending}>
                                             Abaikan
                                         </Button>
                                     )}

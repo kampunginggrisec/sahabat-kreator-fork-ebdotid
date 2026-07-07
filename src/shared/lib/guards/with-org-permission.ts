@@ -48,7 +48,10 @@ export function withOrgPermission<
 
   return async (...rawArgs: T): Promise<R> => {
     const reqHeaders = await headers();
-    const session = await auth.api.getSession({ headers: reqHeaders });
+    const session = await auth.api.getSession({
+      query: { disableCookieCache: true },
+      headers: reqHeaders,
+    });
 
     if (!session?.user) {
       throw new Error("UNAUTHORIZED");

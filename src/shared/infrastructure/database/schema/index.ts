@@ -22,4 +22,6 @@ export * from "./indonesia-momentum-schema";
 
 export * from "./enum-schema";
 
+export * from "./slide-template.schema";
+
 export * from "./relation";

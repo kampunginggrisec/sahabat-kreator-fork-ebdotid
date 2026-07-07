@@ -9,25 +9,25 @@ import { repurposeContentAction } from "../application/use-cases/repurpose-conte
 import type { TransformMode } from "../domain/value-objects/transform-mode.vo";
 import { generateCarouselAction } from "../application/use-cases/generate-carousel";
 import { CarouselPreview } from "./components/carousel-preview";
+import type { ReplizPlatform } from "@/features/social-integration/domain/value-objects/repliz-platform.vo";
 
 type Step = "source" | "mode" | "result";
-type PlatformType = "instagram" | "tiktok" | "youtube" | "facebook" | "x";
 
 export function ContentTransformWizard() {
   const [step, setStep] = useState<Step>("source");
   const [sourceText, setSourceText] = useState("");
-  const [sourcePlatform, setSourcePlatform] = useState<PlatformType>("instagram");
+  const [sourcePlatform, setSourcePlatform] = useState<ReplizPlatform>("instagram");
   const [sourceContentId, setSourceContentId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<{ caption: string; hashtags: string[] }[]>([]);
-  const [resultPlatform, setResultPlatform] = useState<PlatformType>("instagram");
+  const [resultPlatform, setResultPlatform] = useState<ReplizPlatform>("instagram");
   const [transformType, setTransformType] = useState<TransformMode>("variant");
   const [carouselSlides, setCarouselSlides] = useState<{ order: number; text: string; imageUrl: string }[]>([]);
 
   function handleSourceSelected(text: string, platform: string, contentId: string | null) {
     setSourceText(text);
-    setSourcePlatform(platform as PlatformType);
+    setSourcePlatform(platform as ReplizPlatform);
     setSourceContentId(contentId);
     setStep("mode");
   }
@@ -50,7 +50,7 @@ export function ContentTransformWizard() {
       } else {
         const repurposed = await repurposeContentAction(sourceText, sourcePlatform, targetPlatform);
         setResults([repurposed]);
-        setResultPlatform(targetPlatform as PlatformType);
+        setResultPlatform(targetPlatform as ReplizPlatform);
       }
 
       setStep("result");

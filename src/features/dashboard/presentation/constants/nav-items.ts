@@ -3,6 +3,7 @@ import {
   Share2,
   BarChart3,
   Sparkles,
+  Paintbrush,
   CalendarCheck,
   BookOpen,
   RefreshCcw,
@@ -11,6 +12,8 @@ import {
   Inbox,
   Library,
   Hash,
+  Users,
+  Settings,
   type LucideIcon,
 } from "lucide-react";
 
@@ -58,6 +61,12 @@ export const NAV_GROUPS: NavGroup[] = [
         href: "/content/transform",
         icon: RefreshCcw,
         description: "Ubah format konten",
+      },
+      {
+        label: "Template Slide",
+        href: "/slide-templates",
+        icon: Paintbrush,
+        description: "Desain template untuk carousel AI",
       },
       {
         label: "Daftar Konten",
@@ -120,6 +129,35 @@ export const NAV_GROUPS: NavGroup[] = [
         href: "/knowledge",
         icon: BookOpen,
         description: "Aturan & materi referensi",
+      },
+      {
+        label: "Kelola Anggota",
+        href: "/members",
+        icon: Users,
+        description: "Undang & kelola akses workspace tim",
+      },
+    ],
+  },
+  {
+    label: "Pengaturan",
+    items: [
+      {
+        label: "Workspace",
+        href: "/settings/workspace",
+        icon: Settings,
+        description: "Pengaturan workspace",
+      },
+      {
+        label: "Organisasi",
+        href: "/settings/organization",
+        icon: Settings,
+        description: "Pengaturan organisasi",
+      },
+      {
+        label: "Advanced",
+        href: "/settings/advanced",
+        icon: Settings,
+        description: "Pengaturan lanjutan",
       },
     ],
   },

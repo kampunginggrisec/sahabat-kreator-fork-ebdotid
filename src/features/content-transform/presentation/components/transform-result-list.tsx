@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/shared/presentation/components/ui/button";
 import { saveTransformedContentAction } from "../../application/use-cases/save-transformed-content";
+import type { ReplizPlatform } from "@/features/social-integration/domain/value-objects/repliz-platform.vo";
 
 type Result = { caption: string; hashtags: string[] };
 
@@ -13,10 +14,11 @@ export function TransformResultList({
   transformType,
 }: {
   results: Result[];
-  platform: "instagram" | "tiktok" | "youtube" | "facebook" | "x";
+  platform: ReplizPlatform;
   parentContentId: string | null;
   transformType: "variant" | "repurpose";
 }) {
+
   const [savedIndexes, setSavedIndexes] = useState<Set<number>>(new Set());
 
   async function handleSave(result: Result, index: number) {

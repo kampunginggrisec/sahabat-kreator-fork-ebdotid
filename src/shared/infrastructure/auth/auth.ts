@@ -9,6 +9,7 @@ import { eq } from "drizzle-orm";
 import { nextCookies } from "better-auth/next-js";
 import { autoCreateOrganizationAndWorkspace } from "@/features/organization/application/use-cases/auto-create-organization";
 import { nanoid } from "nanoid";
+import { openAPI } from "better-auth/plugins"
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
@@ -19,6 +20,15 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     autoSignIn: true,
+  },
+
+  session: {
+    cookieCache: {
+      enabled: true,
+      maxAge: 300, // cache TTL 5 menit
+      updateAge: 60, // refresh cookie saat tersisa < 1 menit
+      strategy: "compact", // Base64 + HMAC signature (fast, no JWT overhead)
+    },
   },
 
   plugins: [
@@ -44,6 +54,7 @@ export const auth = betterAuth({
     }),
     admin(),
     nextCookies(), // WAJIB paling akhir di array plugins (Next.js cookie handling)
+    openAPI(), 
   ],
   databaseHooks: {
     user: {

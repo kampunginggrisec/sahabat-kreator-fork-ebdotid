@@ -4,11 +4,12 @@ import { db } from "@/shared/infrastructure/database/client";
 import { generatedContent } from "@/shared/infrastructure/database/schema";
 import { withWorkspacePermission } from "@/shared/lib/guards/with-workspace-permission";
 import { nanoid } from "nanoid";
+import type { ReplizPlatform } from "@/features/social-integration/domain/value-objects/repliz-platform.vo";
 
 type SaveTransformInput = {
   parentContentId: string | null; // null kalau source-nya paste teks bebas, bukan dari draft existing
   transformType: "variant" | "repurpose";
-  platform: "instagram" | "tiktok" | "youtube" | "facebook" | "x";
+  platform: ReplizPlatform;
   caption: string;
   hashtags: string[];
 };

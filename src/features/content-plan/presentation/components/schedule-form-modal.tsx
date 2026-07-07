@@ -1,52 +1,83 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useMutation, useSuspenseQuery } from "@tanstack/react-query";
 import { Button } from "@/shared/presentation/components/ui/button";
-import { listConnectionsAction } from "@/features/social-integration/application/use-cases/list-connections";
+import { listConnectionsOptions } from "@/features/social-integration/presentation/hooks/use-social-connections";
 import { scheduleContentAction } from "@/features/content-schedule/application/use-cases/schedule-content";
 import { MediaUploader } from "@/features/media-upload/presentation/components/media-uploader";
 
+type Draft = {
+    id: string;
+    caption: string;
+    platform: string;
+    contentFormat?: string;
+    slides?: { order: number; text: string; imageUrl: string }[];
+};
 
-type Draft = { id: string; caption: string; platform: string; contentFormat?: string; slides?: { order: number; text: string; imageUrl: string }[] };
 type Connection = { id: string; externalName: string; platform: string; isConnected: boolean };
 type UploadedMedia = { type: "image" | "video"; url: string };
 
-export function ScheduleFormModal({ draft, onClose, onScheduled }: { draft: Draft; onClose: () => void; onScheduled: () => void }) {
-    const [connections, setConnections] = useState<Connection[]>([]);
+export function ScheduleFormModal({ draft, onClose, onScheduled }: {
+    draft: Draft;
+    onClose: () => void;
+    onScheduled: () => void;
+}) {
     const [connectionId, setConnectionId] = useState("");
     const [dateTime, setDateTime] = useState("");
     const [uploadedMedia, setUploadedMedia] = useState<UploadedMedia | null>(null);
-    const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    useEffect(() => {
-        listConnectionsAction().then((result) => {
-            const matching = (result as Connection[]).filter((c) => c.platform === draft.platform);
-            setConnections(matching);
-            if (matching.length > 0) setConnectionId(matching[0].id);
-        });
-    }, [draft.platform]);
+    const { data: connectionList = [] } = useSuspenseQuery(listConnectionsOptions());
+    const connections: Connection[] = (connectionList as Connection[])
+        .filter((c) => c.platform === draft.platform);
+
+    if (connections.length > 0 && !connectionId) {
+        setConnectionId(connections[0].id);
+    }
+
+    const mutation = useMutation({
+        mutationFn: (input: { connectionId: string; scheduleAt: Date; mediaUrls?: UploadedMedia[] }) =>
+            scheduleContentAction({
+                generatedContentId: draft.id,
+                ...input,
+            }),
+        onSuccess: () => {
+            onScheduled();
+        },
+        onError: (err: Error) => {
+            setError(err.message);
+        },
+    });
 
     async function handleSubmit() {
         if (!connectionId || !dateTime) {
             setError("Pilih akun dan waktu jadwal terlebih dahulu.");
             return;
         }
-        setIsSaving(true);
         setError(null);
-        try {
-            await scheduleContentAction({
-                generatedContentId: draft.id,
-                connectionId,
-                scheduleAt: new Date(dateTime).toISOString(),
-                mediaUrls: draft.contentFormat === "carousel" ? undefined : (uploadedMedia ? [uploadedMedia] : undefined),
-            });
-            onScheduled();
-        } catch (err) {
-            setError(err instanceof Error ? err.message : "Gagal menjadwalkan.");
-        } finally {
-            setIsSaving(false);
-        }
+
+        const mediaUrls = draft.contentFormat === "carousel"
+            ? undefined
+            : uploadedMedia
+              ? [uploadedMedia]
+              : undefined;
+
+        mutation.mutate({
+            connectionId,
+            scheduleAt: new Date(dateTime),
+            mediaUrls,
+        });
+    }
+
+    if (mutation.isPending) {
+        return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+                <div className="w-full max-w-md space-y-4 rounded-lg bg-background p-5">
+                    <p className="text-sm text-muted-foreground">Menjadwalkan...</p>
+                </div>
+            </div>
+        );
     }
 
     return (
@@ -66,9 +97,15 @@ export function ScheduleFormModal({ draft, onClose, onScheduled }: { draft: Draf
                     {connections.length === 0 ? (
                         <p className="text-xs text-amber-600">Belum ada akun {draft.platform} yang terhubung.</p>
                     ) : (
-                        <select value={connectionId} onChange={(e) => setConnectionId(e.target.value)} className="h-10 w-full rounded-md border bg-background px-3 text-sm">
+                        <select
+                            value={connectionId}
+                            onChange={(e) => setConnectionId(e.target.value)}
+                            className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                        >
                             {connections.map((c) => (
-                                <option key={c.id} value={c.id}>{c.externalName} {!c.isConnected && "(perlu reconnect)"}</option>
+                                <option key={c.id} value={c.id}>
+                                    {c.externalName} {!c.isConnected && "(perlu reconnect)"}
+                                </option>
                             ))}
                         </select>
                     )}
@@ -76,7 +113,12 @@ export function ScheduleFormModal({ draft, onClose, onScheduled }: { draft: Draf
 
                 <div className="space-y-1.5">
                     <label className="text-sm font-medium">Tanggal & Jam</label>
-                    <input type="datetime-local" value={dateTime} onChange={(e) => setDateTime(e.target.value)} className="h-10 w-full rounded-md border bg-background px-3 text-sm" />
+                    <input
+                        type="datetime-local"
+                        value={dateTime}
+                        onChange={(e) => setDateTime(e.target.value)}
+                        className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                    />
                 </div>
 
                 <div className="space-y-1.5">
@@ -87,15 +129,19 @@ export function ScheduleFormModal({ draft, onClose, onScheduled }: { draft: Draf
                         </p>
                     ) : uploadedMedia ? (
                         <div className="flex items-center justify-between rounded-md border p-2 text-xs">
-                            <span>{uploadedMedia.type === "video" ? "🎥" : "🖼️"} Media terupload</span>
-                            <button onClick={() => setUploadedMedia(null)} className="text-destructive">Hapus</button>
+                            <span>
+                                {uploadedMedia.type === "video" ? "🎥" : "🖼️"} Media terupload
+                            </span>
+                            <button onClick={() => setUploadedMedia(null)} className="text-destructive">
+                                Hapus
+                            </button>
                         </div>
                     ) : (
                         <MediaUploader onUploaded={setUploadedMedia} />
                     )}
                 </div>
 
-                <Button type="button" isLoading={isSaving} onClick={handleSubmit} disabled={connections.length === 0}>
+                <Button type="button" onClick={handleSubmit} disabled={connections.length === 0}>
                     Jadwalkan
                 </Button>
             </div>

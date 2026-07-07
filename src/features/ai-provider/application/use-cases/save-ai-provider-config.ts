@@ -7,7 +7,7 @@ import { withWorkspacePermission } from "@/shared/lib/guards/with-workspace-perm
 import { encryptApiKey } from "../../infrastructure/crypto/encrypt-api-key";
 import { nanoid } from "nanoid";
 import type { AIProviderType } from "../../domain/value-objects/provider-type.vo";
-import { parseActionInput } from "@/shared/lib/zod";
+import { parseActionInput } from "@/shared/lib/validation/action-validation";
 import { z } from "zod";
 
 const saveAiProviderConfigSchema = z.object({

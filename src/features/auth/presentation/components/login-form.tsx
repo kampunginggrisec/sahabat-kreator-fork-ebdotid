@@ -9,6 +9,7 @@ import { Label } from "@/shared/presentation/components/ui/label";
 import { Button } from "@/shared/presentation/components/ui/button";
 import { FormError } from "@/shared/presentation/components/ui/form-error";
 import Link from "next/link";
+import { getFirstWorkspaceAction } from "@/features/organization/application/use-cases/get-first-workspace-server-action";
 
 export function LoginForm() {
   const router = useRouter();
@@ -50,24 +51,16 @@ export function LoginForm() {
       return;
     }
 
-    let firstOrg: { id: string; slug?: string } | undefined;
-    // Poll for organizations like register-form.tsx does
-    for (let i = 0; i < 10 && !firstOrg; i++) {
-      const orgs = await authClient.organization.list();
-      console.log("login-form, polling orgs, attempt " + i + ":", orgs);
-      firstOrg = orgs.data?.[0] as { id: string; slug?: string } | undefined;
-      if (!firstOrg) await new Promise((r) => setTimeout(r, 200));
-    }
-    console.log("login-form, firstOrg:", firstOrg);
-
-    if (firstOrg && firstOrg.slug) {
-      // Since our default team's slug is always the same as the org's slug:
-      console.log("login-form, redirecting to /" + firstOrg.slug + "/" + firstOrg.slug);
-      router.push(`/${firstOrg.slug}/${firstOrg.slug}`);
+    // Fetch the user's first workspace (no polling!)
+    const workspace = await getFirstWorkspaceAction();
+    if (workspace) {
+      router.push(`/${workspace.orgSlug}/${workspace.workspaceSlug}`);
       return;
     }
-    console.log("login-form, redirecting to /register just in case");
-    router.push("/register");
+
+    // No workspace yet — user should be on /register
+    // (this should never happen for login, but handle it gracefully)
+    router.push("/");
   }
 
   return (

@@ -3,7 +3,7 @@
 import { db } from "@/shared/infrastructure/database/client";
 import { brandVoice } from "@/shared/infrastructure/database/schema";
 import { withWorkspacePermission } from "@/shared/lib/guards/with-workspace-permission";
-import { parseActionInput } from "@/shared/lib/zod";
+import { parseActionInput } from "@/shared/lib/validation/action-validation";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { saveBrandVoiceSchema } from "@/features/shared/domain/validation-input-schemas";

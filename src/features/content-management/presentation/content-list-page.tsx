@@ -1,22 +1,12 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useTransition } from "react";
+import { useState, useMemo, useCallback } from "react";
 import type { ComponentType, SVGProps } from "react";
 import { Search, Filter, Image as ImageIcon, BarChart3, ExternalLink, Loader2, ChevronLeft, ChevronRight, Users } from "lucide-react";
-import { getConnectedAccountsAction } from "@/features/social-integration/application/use-cases/get-connected-accounts";
-import {
-    FacebookIcon,
-    InstagramIcon,
-    ThreadsIcon,
-    TikTokIcon,
-    XIcon,
-    YoutubeIcon,
-    LinkedInIcon,
-} from "@/shared/presentation/icons/brand";
+import { useConnectedAccounts } from "@/features/social-integration/presentation/hooks/use-connected-accounts";
 import type { ConnectionMeta } from "@/features/social-integration/application/use-cases/get-connected-accounts";
 import {
     listContentsAllAction,
-    getContentStatisticsAction,
     type ContentItem,
 } from "../application/use-cases/list-contents";
 import { Input } from "@/shared/presentation/components/ui/input";
@@ -32,6 +22,17 @@ import {
     SelectValue,
 } from "@/shared/presentation/components/ui/select";
 import { ContentGrid } from "@/shared/presentation/components/ui/content-grid";
+import { useQuery } from "@tanstack/react-query";
+import {
+    FacebookIcon,
+    InstagramIcon,
+    ThreadsIcon,
+    TikTokIcon,
+    XIcon,
+    YoutubeIcon,
+    LinkedInIcon,
+} from "@/shared/presentation/icons/brand";
+import { useContentStats } from "./hooks/use-content-stats";
 
 const ACCOUNT_FILTER_ALL = "__all__";
 const TYPE_FILTER_ALL = "__all__";
@@ -55,61 +56,48 @@ function PlatformIcon({ type, className }: { type: string; className?: string })
 }
 
 export function ContentListPage() {
-    const [connections, setConnections] = useState<ConnectionMeta[]>([]);
-    const [contents, setContents] = useState<ContentItem[]>([]);
-    const [loadingAccounts, setLoadingAccounts] = useState(true);
-    const [loadingContents, setLoadingContents] = useState(false);
-    const [errors, setErrors] = useState<string[]>([]);
+    // ── Data: connected accounts (shared hook, deduped across the app) ──
+    const accountsQuery = useConnectedAccounts();
+    const connections = accountsQuery.data?.connections ?? [];
 
+    // ── Local UI state (only what doesn't belong in cache) ──
     const [search, setSearch] = useState("");
     const [accountFilter, setAccountFilter] = useState<string>(ACCOUNT_FILTER_ALL);
     const [typeFilter, setTypeFilter] = useState<string>(TYPE_FILTER_ALL);
-
     const [expandedId, setExpandedId] = useState<string | null>(null);
-    const [stats, setStats] = useState<Record<string, Record<string, number>>>({});
-    const [loadingStatsId, setLoadingStatsId] = useState<string | null>(null);
-    const [, startTransition] = useTransition();
     const [page, setPage] = useState(0);
 
-    useEffect(() => {
+    const accountIds = useMemo(
+        () => connections.map((c) => c.replizAccountId),
+        [connections]
+    );
+
+    // ── Query: contents list (only runs when we have accountIds) ──
+    const contentsQuery = useQuery({
+        queryKey: ["contents", accountIds],
+        queryFn: async () => {
+            return listContentsAllAction({ accountIds, type: "media" });
+        },
+        enabled: accountIds.length > 0,
+        staleTime: 60 * 1000,
+    });
+
+    const contents: ContentItem[] = contentsQuery.data?.docs ?? [];
+    const loadErrors = contentsQuery.data?.errors ?? [];
+
+    // ── Reset to first page whenever filters change ──
+    const handleSearchChange = useCallback((v: string) => {
+        setSearch(v);
         setPage(0);
-    }, [search, accountFilter, typeFilter]);
-
-    const loadAccounts = useCallback(async () => {
-        const result = await getConnectedAccountsAction();
-        setConnections(result.connections);
-        setLoadingAccounts(false);
     }, []);
-
-    const loadContents = useCallback(async (accIds: string[]) => {
-        if (accIds.length === 0) {
-            setContents([]);
-            return;
-        }
-        setLoadingContents(true);
-        setErrors([]);
-        try {
-            const result = await listContentsAllAction({ accountIds: accIds, type: "media" });
-            setContents(result.docs);
-            if (result.errors.length > 0) {
-                setErrors(result.errors);
-            }
-        } catch (err) {
-            setErrors([String(err)]);
-        } finally {
-            setLoadingContents(false);
-        }
+    const handleAccountFilterChange = useCallback((v: string) => {
+        setAccountFilter(v);
+        setPage(0);
     }, []);
-
-    useEffect(() => {
-        loadAccounts();
-    }, [loadAccounts]);
-
-    useEffect(() => {
-        if (connections.length > 0) {
-            loadContents(connections.map((c) => c.replizAccountId));
-        }
-    }, [connections, loadContents]);
+    const handleTypeFilterChange = useCallback((v: string) => {
+        setTypeFilter(v);
+        setPage(0);
+    }, []);
 
     const accountMap = useMemo(() => {
         const map = new Map<string, ConnectionMeta>();
@@ -153,31 +141,17 @@ export function ContentListPage() {
         setExpandedId(null);
     };
 
-    const loadStats = (content: ContentItem) => {
-        if (!content.accountId) return;
-        const key = `${content.accountId}:${content.id}`;
-        if (expandedId === key) {
-            setExpandedId(null);
-            return;
-        }
-        setExpandedId(key);
-        if (stats[key]) return;
-        setLoadingStatsId(key);
-        startTransition(async () => {
-            try {
-                const data = await getContentStatisticsAction(content.id, content.accountId);
-                setStats((prev) => ({ ...prev, [key]: data }));
-            } catch {
-                setStats((prev) => ({ ...prev, [key]: {} }));
-            } finally {
-                setLoadingStatsId(null);
-            }
-        });
-    };
+    // ── Loading / error states ──
+    if (accountsQuery.isLoading) {
+        return <div className="flex items-center justify-center p-12"><Spinner /></div>;
+    }
 
-    if (loadingAccounts) {
+    if (accountsQuery.error) {
         return (
-            <div className="flex items-center justify-center p-12"><Spinner /></div>
+            <EmptyState
+                title="Gagal memuat akun"
+                description="Terjadi kesalahan saat memuat akun terhubung. Coba refresh halaman."
+            />
         );
     }
 
@@ -199,13 +173,13 @@ export function ContentListPage() {
                     <Input
                         placeholder="Cari judul, topik, atau deskripsi..."
                         value={search}
-                        onChange={(e) => setSearch(e.target.value)}
+                        onChange={(e) => handleSearchChange(e.target.value)}
                         className="pl-9"
                     />
                 </div>
                 <div className="flex items-center gap-2">
                     <Filter className="h-4 w-4 text-muted-foreground" />
-                    <Select value={accountFilter} onValueChange={setAccountFilter}>
+                    <Select value={accountFilter} onValueChange={handleAccountFilterChange}>
                         <SelectTrigger className="w-[200px]">
                             <SelectValue placeholder="Semua akun" />
                         </SelectTrigger>
@@ -226,7 +200,7 @@ export function ContentListPage() {
                             ))}
                         </SelectContent>
                     </Select>
-                    <Select value={typeFilter} onValueChange={setTypeFilter}>
+                    <Select value={typeFilter} onValueChange={handleTypeFilterChange}>
                         <SelectTrigger className="w-[140px]">
                             <SelectValue placeholder="Semua tipe" />
                         </SelectTrigger>
@@ -240,9 +214,9 @@ export function ContentListPage() {
                 </div>
             </div>
 
-            {errors.length > 0 && (
+            {loadErrors.length > 0 && (
                 <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                    Gagal memuat konten dari {errors.length} akun. Coba refresh halaman.
+                    Gagal memuat konten dari {loadErrors.length} akun. Coba refresh halaman.
                 </div>
             )}
 
@@ -250,10 +224,10 @@ export function ContentListPage() {
                 <span>
                     Menampilkan <strong className="text-foreground">{totalFiltered === 0 ? 0 : startIdx + 1}–{endIdx}</strong> dari {totalFiltered} konten
                 </span>
-                {loadingContents && <Loader2 className="h-4 w-4 animate-spin" />}
+                {contentsQuery.isFetching && <Loader2 className="h-4 w-4 animate-spin" />}
             </div>
 
-            {loadingContents && currentPageContents.length === 0 ? (
+            {contentsQuery.isLoading && currentPageContents.length === 0 ? (
                 <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
                     {Array.from({ length: PAGE_SIZE }).map((_, i) => (
                         <div key={i} className="overflow-hidden rounded-xl border bg-card">
@@ -286,144 +260,15 @@ export function ContentListPage() {
             ) : (
                 <>
                 <ContentGrid>
-                    {currentPageContents.map((content) => {
-                        const statKey = `${content.accountId}:${content.id}`;
-                        const isExpanded = expandedId === statKey;
-                        const contentStats = stats[statKey];
-                        const account = content.accountId ? accountMap.get(content.accountId) : null;
-                        const firstMedia = content.medias?.[0];
-                        const thumbnail = firstMedia?.thumbnail;
-                        const title = content.title || "Tanpa judul";
-                        const description = content.description || "";
-                        const topic = content.topic || "";
-                        return (
-                            <div
-                                key={statKey}
-                                className="overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-md"
-                            >
-                                {/* Thumbnail */}
-                                <button
-                                    type="button"
-                                    onClick={() => loadStats(content)}
-                                    className="relative block aspect-square w-full overflow-hidden bg-muted"
-                                >
-                                    {thumbnail ? (
-                                        <img
-                                            src={thumbnail}
-                                            alt={String(title)}
-                                            className="h-full w-full object-cover transition-transform hover:scale-105"
-                                        />
-                                    ) : (
-                                        <div className="flex h-full w-full items-center justify-center">
-                                            <ImageIcon className="h-12 w-12 text-muted-foreground/40" />
-                                        </div>
-                                    )}
-                                    {content.hasAutomation && (
-                                        <Badge className="absolute right-2 top-2">Automated</Badge>
-                                    )}
-                                    {content.accountId && (() => {
-                                        const conn = accountMap.get(content.accountId);
-                                        if (!conn) return null;
-                                        return (
-                                            <div className="absolute left-2 top-2 flex items-center gap-1 rounded-full bg-white/90 px-2 py-1 shadow-sm backdrop-blur-sm">
-                                                <PlatformIcon type={conn.platform} className="h-3.5 w-3.5 text-muted-foreground" />
-                                                <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-                                                    {conn.platform}
-                                                </span>
-                                            </div>
-                                        );
-                                    })()}
-                                </button>
-
-                                {/* Body */}
-                                <div className="space-y-3 p-4">
-                                    <div>
-                                        <p className="line-clamp-2 font-medium text-sm leading-tight">
-                                            {String(title)}
-                                        </p>
-                                        {description && (
-                                            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                                                {String(description)}
-                                            </p>
-                                        )}
-                                    </div>
-
-                                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                        {account ? (
-                                            <span className="flex items-center gap-1.5 truncate">
-                                                <PlatformIcon type={account.platform} className="h-4 w-4 shrink-0 opacity-70" />
-                                                <span className="truncate">{account.externalName}</span>
-                                            </span>
-                                        ) : (
-                                            <span>—</span>
-                                        )}
-                                        {content.createdAt && (
-                                            <span>{new Date(String(content.createdAt)).toLocaleDateString("id-ID")}</span>
-                                        )}
-                                    </div>
-
-                                    {topic && (
-                                        <p className="text-xs text-muted-foreground">
-                                            <span className="font-medium">Topik:</span> {String(topic)}
-                                        </p>
-                                    )}
-
-                                    <div className="flex items-center gap-2 pt-1">
-                                        <Button
-                                            size="sm"
-                                            variant={isExpanded ? "default" : "outline"}
-                                            onClick={() => loadStats(content)}
-                                            disabled={loadingStatsId === statKey}
-                                            className="flex-1"
-                                        >
-                                            {loadingStatsId === statKey ? (
-                                                <Loader2 className="h-3 w-3 animate-spin" />
-                                            ) : (
-                                                <BarChart3 className="h-3 w-3" />
-                                            )}
-                                            {isExpanded ? "Sembunyikan" : "Statistik"}
-                                        </Button>
-                                        {content.url && (
-                                            <a
-                                                href={String(content.url)}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="inline-flex h-8 items-center justify-center gap-1 rounded-md px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                                            >
-                                                <ExternalLink className="h-3 w-3" />
-                                            </a>
-                                        )}
-                                    </div>
-
-                                    {/* Expanded stats */}
-                                    {isExpanded && (
-                                        <div className="border-t pt-3">
-                                            {loadingStatsId === statKey ? (
-                                                <div className="flex justify-center py-2"><Spinner /></div>
-                                            ) : contentStats && Object.keys(contentStats).length > 0 ? (
-                                                <div className="grid grid-cols-2 gap-2">
-                                                    {Object.entries(contentStats).slice(0, 6).map(([k, v]) => (
-                                                        <div key={k} className="rounded-md bg-muted/50 px-2 py-1.5 text-center">
-                                                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                                                                {k.replace(/_/g, " ")}
-                                                            </p>
-                                                            <p className="text-sm font-semibold">
-                                                                {typeof v === "number" ? v.toLocaleString("id-ID") : v}
-                                                            </p>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            ) : (
-                                                <p className="text-center text-xs text-muted-foreground py-2">
-                                                    Belum ada statistik tersedia.
-                                                </p>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        );
-                    })}
+                    {currentPageContents.map((content) => (
+                        <ContentCard
+                            key={`${content.accountId}:${content.id}`}
+                            content={content}
+                            account={content.accountId ? accountMap.get(content.accountId) ?? null : null}
+                            isExpanded={expandedId === `${content.accountId}:${content.id}`}
+                            onToggleStats={() => setExpandedId(prev => prev === `${content.accountId}:${content.id}` ? null : `${content.accountId}:${content.id}`)}
+                        />
+                    ))}
                 </ContentGrid>
 
                 {totalPages > 1 && (
@@ -455,6 +300,144 @@ export function ContentListPage() {
                 )}
                 </>
             )}
+        </div>
+    );
+}
+
+interface ContentCardProps {
+    content: ContentItem;
+    account: ConnectionMeta | null;
+    isExpanded: boolean;
+    onToggleStats: () => void;
+}
+
+function ContentCard({ content, account, isExpanded, onToggleStats }: ContentCardProps) {
+    const statsQuery = useContentStats(content.id, content.accountId, { enabled: isExpanded });
+
+    const firstMedia = content.medias?.[0];
+    const thumbnail = firstMedia?.thumbnail;
+    const title = content.title || "Tanpa judul";
+    const description = content.description || "";
+    const topic = content.topic || "";
+
+    return (
+        <div className="overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-md">
+            {/* Thumbnail */}
+            <button
+                type="button"
+                onClick={onToggleStats}
+                className="relative block aspect-square w-full overflow-hidden bg-muted"
+            >
+                {thumbnail ? (
+                    <img
+                        src={thumbnail}
+                        alt={String(title)}
+                        className="h-full w-full object-cover transition-transform hover:scale-105"
+                    />
+                ) : (
+                    <div className="flex h-full w-full items-center justify-center">
+                        <ImageIcon className="h-12 w-12 text-muted-foreground/40" />
+                    </div>
+                )}
+                {content.hasAutomation && (
+                    <Badge className="absolute right-2 top-2">Automated</Badge>
+                )}
+                {account && (
+                    <div className="absolute left-2 top-2 flex items-center gap-1 rounded-full bg-white/90 px-2 py-1 shadow-sm backdrop-blur-sm">
+                        <PlatformIcon type={account.platform} className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                            {account.platform}
+                        </span>
+                    </div>
+                )}
+            </button>
+
+            {/* Body */}
+            <div className="space-y-3 p-4">
+                <div>
+                    <p className="line-clamp-2 font-medium text-sm leading-tight">
+                        {String(title)}
+                    </p>
+                    {description && (
+                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                            {String(description)}
+                        </p>
+                    )}
+                </div>
+
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    {account ? (
+                        <span className="flex items-center gap-1.5 truncate">
+                            <PlatformIcon type={account.platform} className="h-4 w-4 shrink-0 opacity-70" />
+                            <span className="truncate">{account.externalName}</span>
+                        </span>
+                    ) : (
+                        <span>—</span>
+                    )}
+                    {content.createdAt && (
+                        <span>{new Date(String(content.createdAt)).toLocaleDateString("id-ID")}</span>
+                    )}
+                </div>
+
+                {topic && (
+                    <p className="text-xs text-muted-foreground">
+                        <span className="font-medium">Topik:</span> {String(topic)}
+                    </p>
+                )}
+
+                <div className="flex items-center gap-2 pt-1">
+                    <Button
+                        size="sm"
+                        variant={isExpanded ? "default" : "outline"}
+                        onClick={onToggleStats}
+                        disabled={statsQuery.isLoading}
+                        className="flex-1"
+                    >
+                        {statsQuery.isLoading ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                            <BarChart3 className="h-3 w-3" />
+                        )}
+                        {isExpanded ? "Sembunyikan" : "Statistik"}
+                    </Button>
+                    {content.url && (
+                        <a
+                            href={String(content.url)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex h-8 items-center justify-center gap-1 rounded-md px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                        >
+                            <ExternalLink className="h-3 w-3" />
+                        </a>
+                    )}
+                </div>
+
+                {/* Expanded stats */}
+                {isExpanded && (
+                    <div className="border-t pt-3">
+                        {statsQuery.isLoading ? (
+                            <div className="flex justify-center py-2"><Spinner /></div>
+                        ) : statsQuery.data && Object.keys(statsQuery.data).length > 0 ? (
+                            <div className="grid grid-cols-2 gap-2">
+                                {Object.entries(statsQuery.data).slice(0, 6).map(([k, v]) => (
+                                    <div key={k} className="rounded-md bg-muted/50 px-2 py-1.5 text-center">
+                                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                            {k.replace(/_/g, " ")}
+                                        </p>
+                                        <p className="text-sm font-semibold">
+                                            {typeof v === "number" ? v.toLocaleString("id-ID") : String(v)}
+                                        </p>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-center text-xs text-muted-foreground py-2">
+                                Belum ada statistik tersedia.
+                            </p>
+                        )}
+                    </div>
+                )}
+            </div>
         </div>
     );
 }

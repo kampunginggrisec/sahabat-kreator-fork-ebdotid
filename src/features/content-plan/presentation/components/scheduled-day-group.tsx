@@ -1,10 +1,12 @@
 "use client";
 
+import { useMutation } from "@tanstack/react-query";
 import { SCHEDULE_STATUS_LABELS } from "@/features/content-schedule/domain/value-objects/schedule-status.vo";
 import { cancelScheduledContentAction } from "@/features/content-schedule/application/use-cases/cancel-scheduled-content";
 import { retryScheduledContentAction } from "@/features/content-schedule/application/use-cases/retry-scheduled-content";
+import { useInvalidateContentPlan } from "../hooks/use-content-plan";
 
-type ScheduledItem = {
+export type ScheduledItem = {
     id: string;
     scheduleAt: string;
     status: string;
@@ -13,18 +15,27 @@ type ScheduledItem = {
     connection: { externalName: string; platform: string } | null;
 };
 
-export function ScheduledDayGroup({ date, items, onChanged }: { date: string; items: ScheduledItem[]; onChanged: () => void }) {
+export function ScheduledDayGroup({ date, items }: { date: string; items: ScheduledItem[] }) {
+    const invalidate = useInvalidateContentPlan();
     const dateLabel = new Date(date).toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long" });
 
-    async function handleCancel(id: string) {
+    const cancelMutation = useMutation({
+        mutationFn: (id: string) => cancelScheduledContentAction(id),
+        onSuccess: invalidate,
+    });
+
+    const retryMutation = useMutation({
+        mutationFn: (id: string) => retryScheduledContentAction(id),
+        onSuccess: invalidate,
+    });
+
+    function handleCancel(id: string) {
         if (!confirm("Batalkan jadwal ini?")) return;
-        await cancelScheduledContentAction(id);
-        onChanged();
+        cancelMutation.mutate(id);
     }
 
-    async function handleRetry(id: string) {
-        await retryScheduledContentAction(id);
-        onChanged();
+    function handleRetry(id: string) {
+        retryMutation.mutate(id);
     }
 
     return (
@@ -52,10 +63,22 @@ export function ScheduledDayGroup({ date, items, onChanged }: { date: string; it
                             </div>
                             <div className="flex shrink-0 gap-1">
                                 {item.status === "error" && (
-                                    <button onClick={() => handleRetry(item.id)} className="text-xs text-blue-600 hover:underline">Coba lagi</button>
+                                    <button
+                                        onClick={() => handleRetry(item.id)}
+                                        disabled={retryMutation.isPending}
+                                        className="text-xs text-blue-600 hover:underline disabled:opacity-50"
+                                    >
+                                        Coba lagi
+                                    </button>
                                 )}
                                 {item.status !== "success" && (
-                                    <button onClick={() => handleCancel(item.id)} className="text-xs text-destructive hover:underline">Batal</button>
+                                    <button
+                                        onClick={() => handleCancel(item.id)}
+                                        disabled={cancelMutation.isPending}
+                                        className="text-xs text-destructive hover:underline disabled:opacity-50"
+                                    >
+                                        Batal
+                                    </button>
                                 )}
                             </div>
                         </div>

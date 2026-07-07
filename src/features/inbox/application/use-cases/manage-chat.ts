@@ -2,7 +2,7 @@
 
 import { sendChatMessage, readChat } from "@/features/social-integration/infrastructure/repliz/repliz-client";
 import { withWorkspacePermission } from "@/shared/lib/guards/with-workspace-permission";
-import { parseActionInput } from "@/shared/lib/zod";
+import { parseActionInput } from "@/shared/lib/validation/action-validation";
 import { z } from "zod";
 import { sendChatMessageSchema } from "@/features/shared/domain/validation-input-schemas";
 

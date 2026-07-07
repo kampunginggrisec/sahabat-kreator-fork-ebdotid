@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback, useTransition } from "react";
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listChatsAction, listChatMessagesAction } from "../application/use-cases/list-chats";
 import { sendChatMessageAction } from "../application/use-cases/manage-chat";
-import { getConnectedAccountsAction } from "@/features/social-integration/application/use-cases/get-connected-accounts";
+import { useConnectedAccounts } from "@/features/social-integration/presentation/hooks/use-connected-accounts";
 import type { ReplizChat, ReplizChatMessage } from "@/features/social-integration/infrastructure/repliz/repliz-client";
 
 import { Button } from "@/shared/presentation/components/ui/button";
@@ -11,80 +12,75 @@ import { Input } from "@/shared/presentation/components/ui/input";
 import { EmptyState } from "@/shared/presentation/components/ui/empty-state";
 import { Spinner } from "@/shared/presentation/components/ui/spinner";
 import { Badge } from "@/shared/presentation/components/ui/badge";
+import { chats, chatMessages } from "@/features/shared/lib/query-keys";
 
 export function InboxPage() {
-    const [connectedAccounts, setConnectedAccounts] = useState<string[]>([]);
+    const accountsQuery = useConnectedAccounts();
+    const connectedAccounts = accountsQuery.data?.accountIds ?? [];
+
     const [chatsPage, setChatsPage] = useState(1);
     const [messagesPage, setMessagesPage] = useState(1);
-    const [chatsLoading, setChatsLoading] = useState(true);
-    const [messagesLoading, setMessagesLoading] = useState(false);
     const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
     const [replyText, setReplyText] = useState("");
-    const [isSending, startTransition] = useTransition();
-
-    const [chats, setChats] = useState<ReplizChat[]>([]);
-    const [chatsTotal, setChatsTotal] = useState(1);
-    const [selectedChat, setSelectedChat] = useState<ReplizChat | null>(null);
-    const [messages, setMessages] = useState<ReplizChatMessage[]>([]);
-    const [messagesTotal, setMessagesTotal] = useState(0);
     const [search, setSearch] = useState("");
 
-    useEffect(() => {
-        getConnectedAccountsAction()
-            .then((res) => setConnectedAccounts(res.accountIds))
-            .catch(() => setConnectedAccounts([]));
-    }, []);
-
-    const loadChats = useCallback(async () => {
-        setChatsLoading(true);
-        const result = await listChatsAction({
+    // ── Chats query ──
+    const chatsQuery = useQuery({
+        queryKey: chats({
             page: chatsPage,
             limit: 20,
             accountIds: connectedAccounts,
-            search: search.trim() ? search.trim() : undefined,
-        });
-        setChats(result.docs);
-        setChatsTotal(result.totalPages ?? 1);
-        setChatsLoading(false);
-    }, [chatsPage, search, connectedAccounts]);
+            search: search.trim() || undefined,
+        }),
+        queryFn: () =>
+            listChatsAction({
+                page: chatsPage,
+                limit: 20,
+                accountIds: connectedAccounts,
+                search: search.trim() ? search.trim() : undefined,
+            }),
+        staleTime: 30 * 1000,
+    });
 
-    const loadMessages = useCallback(async (chatId: string) => {
-        setMessagesLoading(true);
-        const result = await listChatMessagesAction(chatId, { page: messagesPage, limit: 50 });
-        setMessages(result.docs);
-        setMessagesTotal(result.totalDocs ?? 0);
-        setMessagesLoading(false);
-    }, [messagesPage]);
+    const chatList: ReplizChat[] = chatsQuery.data?.docs ?? [];
+    const chatsTotal = chatsQuery.data?.totalPages ?? 1;
+    const selectedChat = selectedChatId
+        ? chatList.find((c) => c.id === selectedChatId) ?? null
+        : null;
 
-    useEffect(() => { loadChats(); }, [loadChats]);
+    // ── Messages query (only when a chat is selected) ──
+    const messagesQuery = useQuery({
+        queryKey: chatMessages(selectedChatId ?? "", messagesPage),
+        queryFn: () => listChatMessagesAction(selectedChatId as string, { page: messagesPage, limit: 50 }),
+        enabled: Boolean(selectedChatId),
+        staleTime: 15 * 1000,
+    });
 
-    useEffect(() => {
-        if (selectedChatId) {
-            const chat = chats.find((c) => c.id === selectedChatId);
-            setSelectedChat(chat ?? null);
-            setMessagesPage(1);
-            if (chat) loadMessages(chat.id);
-        } else {
-            setSelectedChat(null);
-            setMessages([]);
-        }
-    }, [selectedChatId, chats]);
+    const messages: ReplizChatMessage[] = messagesQuery.data?.docs ?? [];
+    const messagesTotal = messagesQuery.data?.totalDocs ?? 0;
 
-    const selectChat = (chatId: string) => {
-        setSelectedChatId(chatId);
-    };
+    // ── Send message mutation ──
+    const qc = useQueryClient();
+    const sendMutation = useMutation({
+        mutationFn: (args: { chatId: string; text: string }) =>
+            sendChatMessageAction(args.chatId, { type: "text", text: args.text }),
+        onSuccess: () => {
+            setReplyText("");
+            qc.invalidateQueries({ queryKey: ["chats"] });
+            if (selectedChatId) {
+                qc.invalidateQueries({ queryKey: chatMessages(selectedChatId, messagesPage) });
+            }
+        },
+    });
 
     const handleSend = () => {
         if (!replyText.trim() || !selectedChatId) return;
-        startTransition(async () => {
-            await sendChatMessageAction(selectedChatId, {
-                type: "text",
-                text: replyText.trim(),
-            });
-            setReplyText("");
-            // Reload messages
-            if (selectedChat) loadMessages(selectedChat.id);
-        });
+        sendMutation.mutate({ chatId: selectedChatId, text: replyText.trim() });
+    };
+
+    const selectChat = (chatId: string) => {
+        setSelectedChatId(chatId);
+        setMessagesPage(1);
     };
 
     return (
@@ -97,15 +93,15 @@ export function InboxPage() {
                         value={search}
                         onChange={(e) => { setSearch(e.target.value); setChatsPage(1); }}
                     />
-                    {chatsLoading && <Spinner className="h-3 w-3" />}
+                    {chatsQuery.isFetching && <Spinner className="h-3 w-3" />}
                 </div>
                 <div className="flex-1 overflow-y-auto">
-                    {chatsLoading && chats.length === 0 ? (
+                    {chatsQuery.isLoading && chatList.length === 0 ? (
                         <p className="p-4 text-sm text-muted-foreground">Memuat...</p>
-                    ) : chats.length === 0 ? (
+                    ) : chatList.length === 0 ? (
                         <EmptyState title="Tidak ada chat" description="Pesan masuk akan muncul di sini." />
                     ) : (
-                        chats.map((chat) => (
+                        chatList.map((chat) => (
                             <button
                                 key={chat.id}
                                 onClick={() => selectChat(chat.id)}
@@ -159,7 +155,7 @@ export function InboxPage() {
                             </div>
                         </div>
                         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                            {messagesLoading && messages.length === 0 ? (
+                            {messagesQuery.isLoading && messages.length === 0 ? (
                                 <p className="text-sm text-muted-foreground">Memuat pesan...</p>
                             ) : (
                                 messages.map((msg) => (
@@ -187,7 +183,7 @@ export function InboxPage() {
                                 onChange={(e) => setReplyText(e.target.value)}
                                 onKeyDown={(e) => { if (e.key === "Enter") handleSend(); }}
                             />
-                            <Button onClick={handleSend} disabled={isSending || !replyText.trim()}>
+                            <Button onClick={handleSend} disabled={sendMutation.isPending || !replyText.trim()}>
                                 Kirim
                             </Button>
                         </div>

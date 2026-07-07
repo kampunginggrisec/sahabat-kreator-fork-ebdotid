@@ -2,7 +2,7 @@
 
 import { getOneComment, replyToComment, updateCommentStatus } from "@/features/social-integration/infrastructure/repliz/repliz-client";
 import { withWorkspacePermission } from "@/shared/lib/guards/with-workspace-permission";
-import { parseActionInput } from "@/shared/lib/zod";
+import { parseActionInput } from "@/shared/lib/validation/action-validation";
 import { replyCommentSchema, updateCommentStatusSchema } from "@/features/shared/domain/validation-input-schemas";
 import { z } from "zod";
 

@@ -13,7 +13,7 @@ export function RecommendationCard({ rec }: { rec: Recommendation }) {
         </div>
       </div>
       <Link href={rec.actionUrl} className="inline-block text-xs font-medium text-foreground hover:underline">
-        {rec.actionLabel} →
+        {rec.actionLabel}&nbsp;→
       </Link>
     </div>
   );

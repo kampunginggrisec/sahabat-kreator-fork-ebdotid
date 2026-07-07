@@ -3,7 +3,7 @@
 import { db } from "@/shared/infrastructure/database/client";
 import { knowledgeEntry } from "@/shared/infrastructure/database/schema";
 import { withWorkspacePermission } from "@/shared/lib/guards/with-workspace-permission";
-import { parseActionInput } from "@/shared/lib/zod";
+import { parseActionInput } from "@/shared/lib/validation/action-validation";
 import { generateEmbedding } from "../../infrastructure/embedding/embedding-service";
 import { addKnowledgeEntrySchema } from "@/features/shared/domain/validation-input-schemas";
 import { nanoid } from "nanoid";

@@ -25,6 +25,9 @@ export const generateCaptionFromIdeaAction = withWorkspacePermission(
 
     const brandVoiceData = bv
       ? {
+          brandName: bv.brandName,
+          tagline: bv.tagline,
+          industry: bv.industry,
           toneDescription: bv.toneDescription,
           personalityTraits: bv.personalityTraits ?? [],
           dos: bv.dos ?? [],

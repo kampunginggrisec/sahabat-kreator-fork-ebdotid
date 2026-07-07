@@ -1,52 +1,50 @@
-import { listConnectionsAction } from "@/features/social-integration/application/use-cases/list-connections";
-
-import {
-  ONE_STEP_PLATFORMS,
-  TWO_STEP_PLATFORMS,
-} from "@/features/social-integration/domain/value-objects/repliz-platform.vo";
-
 import { PlatformBlock } from "@/features/social-integration/presentation/blocks/platform-block";
+import { SOCIAL_PLATFORM_REGISTRY } from "@/features/social-integration/presentation/constants/platform-registry";
+import { getConnectedAccountsAction } from "@/features/social-integration/application/use-cases/get-connected-accounts";
 
-import { PageContainer } from "@/shared/presentation/components/ui/page-container";
-import { PageHeader } from "@/shared/presentation/components/ui/page-header";
+type Props = {
+    params: Promise<{ orgSlug: string; workspaceSlug: string }>;
+};
 
-export default async function SocialIntegrationPage({
-  params,
-}: {
-  params: Promise<{
-    orgSlug: string;
-    workspaceSlug: string;
-  }>;
-}) {
-  const { orgSlug, workspaceSlug } = await params;
+// Revalidate this page every 5 minutes. Connections rarely change
+// during a normal user session, so per-user dynamic rendering adds cost
+// without benefit. Mutations call `revalidatePath` to force invalidation.
+export const revalidate = 300;
 
-  const connections = await listConnectionsAction();
+export default async function SocialIntegrationPage({ params }: Props) {
+    const { orgSlug, workspaceSlug } = await params;
 
-  const platforms = [
-    ...ONE_STEP_PLATFORMS,
-    ...TWO_STEP_PLATFORMS,
-  ];
+    const { connections: allConnections } = await getConnectedAccountsAction();
 
-  return (
-    <PageContainer>
-      <PageHeader
-        title="Social Integration"
-        description="Hubungkan akun media sosial untuk mulai menjadwalkan konten."
-      />
+    const connectionsByPlatform: Record<string, typeof allConnections> = {};
+    for (const conn of allConnections) {
+        if (!connectionsByPlatform[conn.platform]) {
+            connectionsByPlatform[conn.platform] = [];
+        }
+        connectionsByPlatform[conn.platform].push(conn);
+    }
 
-      <div className="space-y-8">
-        {platforms.map((platform) => (
-          <PlatformBlock
-            key={platform}
-            platform={platform}
-            orgSlug={orgSlug}
-            workspaceSlug={workspaceSlug}
-            connections={connections.filter(
-              (c) => c.platform === platform
-            )}
-          />
-        ))}
-      </div>
-    </PageContainer>
-  );
+    return (
+        <div className="space-y-6">
+            <div>
+                <h1 className="text-xl font-semibold">Integrasi Sosial</h1>
+                <p className="text-sm text-muted-foreground">Hubungkan akun media sosial Anda</p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+                {Object.entries(SOCIAL_PLATFORM_REGISTRY).map(([platform, _config]) => {
+                    const connections = connectionsByPlatform[platform] ?? [];
+                    return (
+                        <PlatformBlock
+                            key={platform}
+                            platform={platform}
+                            orgSlug={orgSlug}
+                            workspaceSlug={workspaceSlug}
+                            connections={connections}
+                        />
+                    );
+                })}
+            </div>
+        </div>
+    );
 }

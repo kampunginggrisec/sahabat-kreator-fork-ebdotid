@@ -3,7 +3,7 @@
 import { db } from "@/shared/infrastructure/database/client";
 import { generatedContent } from "@/shared/infrastructure/database/schema";
 import { withWorkspacePermission } from "@/shared/lib/guards/with-workspace-permission";
-import { parseActionInput } from "@/shared/lib/zod";
+import { parseActionInput } from "@/shared/lib/validation/action-validation";
 import { nanoid } from "nanoid";
 import type { ContentIdea } from "../../domain/entities/content-idea.entity";
 import { z } from "zod";

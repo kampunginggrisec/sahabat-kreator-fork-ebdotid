@@ -12,7 +12,7 @@ export function CarouselPreview({
   parentContentId,
 }: {
   slides: Slide[];
-  platform: "instagram" | "facebook" | "threads" | "tiktok" | "linkedin";
+  platform: "instagram" | "facebook" | "threads" | "tiktok" | "linkedin" | "youtube";
   parentContentId: string | null;
 }) {
   const [isSaving, setIsSaving] = useState(false);

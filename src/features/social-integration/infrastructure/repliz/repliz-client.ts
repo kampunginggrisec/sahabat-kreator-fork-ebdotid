@@ -230,6 +230,22 @@ export async function listContentsAllAccounts(options: {
     return { docs, errors };
 }
 
+// ─── Cached wrappers for server-side reuse ───────────────────────────────────────────
+
+/** In-memory cache for content list calls (TTL: 60s). Avoids re-fetching from Repliz for same accountIds. */
+import { cacheAsync } from "@/shared/lib/cache";
+
+export const cachedListContentsAllAccounts = cacheAsync(
+    listContentsAllAccounts,
+    { ttl: 60_000 }
+);
+
+/** In-memory cache for content statistics calls (TTL: 60s). Each content+account combo is unique. */
+export const cachedGetContentStatistics = cacheAsync(
+    (contentId: string, accountId: string) => getContentStatistics(contentId, accountId),
+    { ttl: 60_000 }
+);
+
 export type ReplizContentStatistics = Record<string, number>;
 
 export async function getContentStatistics(
